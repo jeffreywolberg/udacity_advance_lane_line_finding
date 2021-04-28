@@ -21,7 +21,7 @@ class LaneFinder(object):
         # set in case you'd like sliding boxes to be tried after frames_since_reset conseuctive frames of using poly to
         # refit polynomial coefficients
         self.frames_since_reset = 1
-        self.frames_to_reset = 2000
+        self.frames_to_reset = 100000
 
         self.lanes_found_w_boxes = 0
         self.lanes_found_w_poly_refit = 0
@@ -443,7 +443,7 @@ class LaneFinder(object):
                 if not ret:
                     break
                 else:
-                    print(self.frame_num)
+                    print("Processing frame {}".format(self.frame_num))
                     # if self.frame_num <= 980:
                     #     self.frame_num += 1
                     #     continue

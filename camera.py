@@ -10,8 +10,8 @@ join = os.path.join
 class Camera(object):
     def __init__(self, images_folder):
         self.images_folder = images_folder
-        # self.mtx = None
-        # self.dist = None
+        self.mtx = None
+        self.dist = None
 
         self.mtx = np.array([[1.15777930e+03, 0.00000000e+00, 6.67111054e+02],
  [0.00000000e+00, 1.15282291e+03, 3.86128938e+02],
@@ -37,6 +37,7 @@ class Camera(object):
         checkerboard_points[:, :2] = np.mgrid[0:nx, 0:ny].T.reshape(-1, 2)
 
         image_shape = None
+        print("Calibrating Camera ...")
         for image_path in tqdm.tqdm(glob.glob(join(self.images_folder, 'calibration*.jpg'))):
             # print(image_path)
             image = cv2.imread(image_path)
