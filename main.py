@@ -8,16 +8,15 @@ join = os.path.join
 from camera import Camera
 
 class LaneFinder(object):
-    def __init__(self, camera_obj, image=None, video=None, verbose=False):
+    def __init__(self, camera_obj, image=None, video=None, debug=False):
         self.camera_obj = camera_obj
         self.mtx, self.dist = camera.get_mtx_and_dist()
         self.image = image
         self.video = video
         self.polynomial_coeffs = [[None, None]]
-        self.verbose = verbose
+        self.debug = debug
         self.frame_num = 0
         self.show_every_nth_frame = 20
-        self.divide = 1
 
         # set in case you'd like sliding boxes to be tried after frames_since_reset conseuctive frames of using poly to
         # refit polynomial coefficients
@@ -26,7 +25,8 @@ class LaneFinder(object):
 
         self.lanes_found_w_boxes = 0
         self.lanes_found_w_poly_refit = 0
-        self.conditions_array = np.zeros(shape=(3,))
+        self.conditions = np.zeros(shape=(3,))
+        self.conditions_counter = np.zeros(shape=(3,))
         # cv2.namedWindow(self.windowName, cv2.WINDOW_NORMAL)
 
 #===================== IMAGE PROCESSING/DRAWING =================================
@@ -43,7 +43,7 @@ class LaneFinder(object):
         # tl, tr, bl, br = [(image.shape[0] / 4), 0], [(image.shape[0] * 3 / 4), 0], [(image.shape[0] / 4), image.shape[0]], [(image.shape[0] * 3 / 4), image.shape[0]]
         dst_points = np.array([tl, tr, bl, br], dtype=np.float32)
 
-        if self.verbose and self.frame_num % self.show_every_nth_frame == 0:
+        if self.debug and self.frame_num % self.show_every_nth_frame == 0:
             image_drawn = self.draw_manual_lines(vertices, image.copy())
             cv2.imshow('ROI', image_drawn)
             cv2.waitKey(0)
@@ -90,7 +90,7 @@ class LaneFinder(object):
         combined_binary = np.zeros_like(sxbinary)
         combined_binary[(s_binary == 1) | (sxbinary == 1)] = 1
 
-        if self.verbose and self.frame_num % (self.show_every_nth_frame/self.divide) == 0:
+        if self.debug and self.frame_num % (self.show_every_nth_frame) == 0:
             cv2.imshow("Combined Binary", combined_binary.astype(np.float64))
             cv2.waitKey(0)
             # print(s_channel[700, 220:250])
@@ -105,14 +105,6 @@ class LaneFinder(object):
                                         vertices_dst)
         image_warped = cv2.warpPerspective(image, M, dsize=image.shape[1::-1])
         return image_warped, M
-
-        # self.result = get_binary_image(image_warped)
-        # self.result_copy = self.result.copy()
-
-        # cv2.imshow('Colored', self.image_copy)
-        # cv2.waitKey(0)
-        # cv2.imshow('Warped', image_warped)
-        # cv2.waitKey(0)
 
     def display_two_ims(self, im, im2, title, title2):
         # Plot the result
@@ -131,7 +123,6 @@ class LaneFinder(object):
     def image_col_peaks(self, binary_image_warped):
 
         midpoint_x = binary_image_warped.shape[1] // 2
-        # y_desired_height = int(binary_image_warped.shape[0] // 1.5)
         y_desired_height = 0
 
         pixel_sums = np.sum(binary_image_warped[y_desired_height:, :], axis=0)
@@ -139,7 +130,7 @@ class LaneFinder(object):
         self.left_peak_x, val_l = np.argmax(pixel_sums[:midpoint_x]), np.max(pixel_sums[:midpoint_x])
         self.right_peak_x, val_r = np.argmax(pixel_sums[midpoint_x:]) + midpoint_x, np.max(pixel_sums[midpoint_x:])
 
-        if self.verbose and self.frame_num % (self.show_every_nth_frame/self.divide) == 0:
+        if self.debug and self.frame_num % (self.show_every_nth_frame) == 0:
             plt.plot(np.arange(binary_image_warped.shape[1]), pixel_sums)
             plt.plot([self.left_peak_x, self.left_peak_x], [0, val_l])
             plt.plot([self.right_peak_x, self.right_peak_x], [0, val_r])
@@ -155,7 +146,7 @@ class LaneFinder(object):
         margin = 80
         # Set minimum number of pixels found to recenter window
         minpix = 10
-        # if sliding box moves this amount horizontally, don't collect any points
+        # if sliding box moves this amount horizontally, don't collect any points from that box
         max_box_movement = 80
 
         # Set height of windows - based on nwindows above and image shape
@@ -179,11 +170,10 @@ class LaneFinder(object):
                 # Identify window boundaries in x and y (and right and left)
                 win_y_low = binary_warped.shape[0] - (window + 1) * window_height
                 win_y_high = binary_warped.shape[0] - window * window_height
-                ### TO-DO: Find the four below boundaries of the window ###
-                win_xleft_low = leftx_current - margin  # Update this
-                win_xleft_high = leftx_current + margin  # Update this
-                win_xright_low = rightx_current - margin  # Update this
-                win_xright_high = rightx_current + margin  # Update this
+                win_xleft_low = leftx_current - margin
+                win_xleft_high = leftx_current + margin
+                win_xright_low = rightx_current - margin
+                win_xright_high = rightx_current + margin
 
                 good_left_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) &
                                   (nonzerox >= win_xleft_low) & (nonzerox < win_xleft_high)).nonzero()[0]
@@ -191,38 +181,33 @@ class LaneFinder(object):
                 good_right_inds = \
                 ((nonzerox >= win_xright_low) & (nonzerox < win_xright_high) & (nonzeroy >= win_y_low) & (
                         nonzeroy < win_y_high)).nonzero()[0]
-                # print(len(good_right_inds))
 
-                # print(len(good_left_inds), len(good_right_inds))
                 show_l_rect = False
                 if len(good_left_inds) > minpix:
                     l_center_box_diff = np.int(np.mean(nonzerox[good_left_inds])) - leftx_current
-                    # if self.verbose and self.frame_num % self.show_every_nth_frame == 0:
+                    # if self.debug and self.frame_num % self.show_every_nth_frame == 0:
                         # print("L", window, l_center_box_diff, np.int(np.mean(nonzerox[good_left_inds])), leftx_current, len(good_left_inds))
                     if np.abs(l_center_box_diff) < max_box_movement:
                         leftx_current = np.int(np.mean(nonzerox[good_left_inds]))
                         left_lane_inds.append(good_left_inds)
                         show_l_rect = True
-                    else:
-                        pass
+
 
                 show_r_rect = False
                 if len(good_right_inds) > minpix:
                     r_center_box_diff = np.int(np.mean(nonzerox[good_right_inds])) - rightx_current
-                    # if self.verbose and self.frame_num % self.show_every_nth_frame == 0:
+                    # if self.debug and self.frame_num % self.show_every_nth_frame == 0:
                         # print("R", window, r_center_box_diff, np.int(np.mean(nonzerox[good_right_inds])), rightx_current, len(good_right_inds))
                     if np.abs(r_center_box_diff) < max_box_movement:
                         rightx_current = np.int(np.mean(nonzerox[good_right_inds]))
                         right_lane_inds.append(good_right_inds)
                         show_r_rect = True
-                    else:
-                        pass
-                        # rightx_current = -100
+
 
 
 
                 # Draw the windows on the visualization image
-                if self.verbose and self.frame_num % (self.show_every_nth_frame/self.divide) == 0:
+                if self.debug and self.frame_num % (self.show_every_nth_frame) == 0:
                     if colored_image is not None:
                         if show_l_rect:
                             cv2.rectangle(colored_image, (win_xleft_low, win_y_low),
@@ -231,13 +216,12 @@ class LaneFinder(object):
                             cv2.rectangle(colored_image, (win_xright_low, win_y_low),
                                           (win_xright_high, win_y_high), (255,0, 0), 2)
 
-            if self.verbose and self.frame_num % (self.show_every_nth_frame/self.divide) == 0:
+            if self.debug and self.frame_num % (self.show_every_nth_frame) == 0:
                 cv2.imshow("Boxes", colored_image)
                 cv2.waitKey(0)
 
         else:
             did_use_boxes = False
-            # t = time.time()
             left_lane_inds = ((nonzerox > (left_coeffs[0] * (nonzeroy ** 2) + left_coeffs[1] * nonzeroy +
                                            left_coeffs[2] - margin)) & (nonzerox < (left_coeffs[0] * (nonzeroy ** 2) +
                                                                                     left_coeffs[1] * nonzeroy +
@@ -253,7 +237,7 @@ class LaneFinder(object):
 
             ## Visualization ##
             # Create an image to draw on and an image to show the selection window
-            if self.verbose and self.frame_num % (self.show_every_nth_frame/self.divide) == 0:
+            if self.debug and self.frame_num % (self.show_every_nth_frame) == 0:
                 out_img = np.dstack((binary_warped, binary_warped, binary_warped)) * 255
                 window_img = np.zeros_like(out_img)
                 # Color in left and right line pixels
@@ -287,6 +271,7 @@ class LaneFinder(object):
                 right_lane_inds = np.concatenate(right_lane_inds)
             # print("NORMAL", left_lane_inds.shape, right_lane_inds.shape)
         except ValueError:
+            print("Lane inds value error, l shape: {}, r_shape {}".format(len(left_lane_inds), len(right_lane_inds)))
             # print(len(left_lane_inds), len(right_lane_inds))
             # print("VALUE ERROR", left_lane_inds.shape==right_lane_inds.shape)
             return np.array([]), np.array([]), np.array([]), np.array([])
@@ -311,10 +296,12 @@ class LaneFinder(object):
         try:
             left_coeffs = np.polyfit(lefty*ym, leftx*xm, 2)
         except(TypeError):
+            print('Type error no lefty or leftx')
             left_coeffs =  self.polynomial_coeffs[-1][0]
         try:
             right_coeffs = np.polyfit(righty*ym, rightx*xm, 2)
         except(TypeError):
+            print('Type error no righty or rightx')
             # print(lefty.shape, leftx.shape, rightx.shape, righty.shape, rightx, righty)
             right_coeffs = self.polynomial_coeffs[-1][1]
 
@@ -360,20 +347,21 @@ class LaneFinder(object):
         # obtain binary image
         binary_image_warped = self.get_binary_image(image_warped)
 
-        # if self.verbose and self.frame_num % self.show_every_nth_frame == 0:
-        #     cv2.imshow("Warped Binary Im", binary_image_warped.astype(np.float64))
-        #     cv2.waitKey(0)
+        if self.debug and self.frame_num % self.show_every_nth_frame == 0:
+            cv2.imshow("Warped Binary Im", binary_image_warped.astype(np.float64))
+            cv2.waitKey(0)
             # cv2.imwrite(r'./output_images/warped_binary_image.jpg', binary_image_warped*255)
         # from binary image, find pixel peaks within columns
         self.left_peak_x, self.right_peak_x = self.image_col_peaks(binary_image_warped)
         # given the peaks, find the lane pixels within the binary warped image
         n_frames_compare_coeffs = 5
         # if there are more than n_frames_to_compare, and 'a' of polynomial coeff is not 10x greater/smaller than
-        # 'a' coeff from n_frames_to_compare frames ago, use previous coeffs, else recompute line/coeffs from scratch
+        # 'a' coeff from n_frames_to_compare frames ago, use previous coeffs to refit curve
+        # , else recompute line/coeffs from scratch
         try:
-            conditions = np.array([(self.frames_since_reset < self.frames_to_reset), len(self.polynomial_coeffs) > n_frames_compare_coeffs, 2 > np.abs(self.polynomial_coeffs[-n_frames_compare_coeffs][0][0] / self.polynomial_coeffs[-1][0][0])  > .5])
-            self.conditions_array += conditions
-            self.poly_refit = all(conditions)
+            self.conditions = np.array([(self.frames_since_reset < self.frames_to_reset), len(self.polynomial_coeffs) > n_frames_compare_coeffs, 10 > np.abs(self.polynomial_coeffs[-n_frames_compare_coeffs][0][0] / self.polynomial_coeffs[-1][0][0])  > .1])
+            self.conditions_counter += self.conditions
+            self.poly_refit = all(self.conditions)
         except(IndexError, TypeError):
             self.poly_refit = False
         if self.poly_refit:
@@ -412,8 +400,8 @@ class LaneFinder(object):
         lines_unwarped, Minv = self.warp_image(dst_points, source_pts, blank_left | blank_right)
 
         # warp line (which was drawn on birdeye's view image) and project onto regular photo from car camera
-        l_line_unwarped, Minv = self.warp_image(dst_points, source_pts, blank_left)
-        r_line_unwarped, Minv = self.warp_image(dst_points, source_pts, blank_right)
+        # l_line_unwarped, Minv = self.warp_image(dst_points, source_pts, blank_left)
+        # r_line_unwarped, Minv = self.warp_image(dst_points, source_pts, blank_right)
 
         # overlay line over car camera image
         final_image = image.copy()
@@ -421,7 +409,7 @@ class LaneFinder(object):
         final_image[indices[0], indices[1]] = line_color
         # cv2.imwrite(r'./output_images/street_w_lane_line.jpg', final_image)
 
-        if self.verbose and self.frame_num % self.show_every_nth_frame == 0:
+        if self.debug and self.frame_num % self.show_every_nth_frame == 0:
             self.display_two_ims(binary_image_warped, final_image, 'L', 'R')
             # cv2.imshow(self.windowName, final_image)
             # cv2.waitKey(0)
@@ -449,7 +437,7 @@ class LaneFinder(object):
 
             # Define the codec and create VideoWriter object
             fourcc = cv2.VideoWriter_fourcc(*'XVID')
-            out = cv2.VideoWriter('challenge_video_output.mp4', fourcc, 20.0, (1280, 720))
+            out = cv2.VideoWriter('output.mp4', fourcc, 20.0, (1280, 720))
             while(1):
                 ret, frame = cap.read()
                 if not ret:
@@ -459,7 +447,7 @@ class LaneFinder(object):
                     # if self.frame_num <= 980:
                     #     self.frame_num += 1
                     #     continue
-                    # elif self.frame_num > 1080:
+                    # if self.frame_num > 108:
                     #     break
                     frame = self.camera_obj.undistort_image(frame, self.mtx, self.dist)
                     out_frame = self.find_lane_lines(frame)
@@ -469,9 +457,9 @@ class LaneFinder(object):
                                 "Car's distance from center of lane: {} (m)".format("%.2f" % self.offset_meters),
                                 (50, 100), fontScale=.7, fontFace=cv2.FONT_HERSHEY_SIMPLEX, color=(0, 0, 0))
                     cv2.putText(out_frame,
-                                "{}".format("Poly Refitting" if self.poly_refit else "Sliding Boxes"),
+                                "Frame {}, {}, {}".format(self.frame_num, "Poly Refitting" if self.poly_refit else "Sliding Boxes", self.conditions[2]),
                                 (50, 130), fontScale=.7, fontFace=cv2.FONT_HERSHEY_SIMPLEX, color=(0, 0, 0))
-                    if self.verbose and self.frame_num % (self.show_every_nth_frame/self.divide) == 0:
+                    if self.debug and self.frame_num % (self.show_every_nth_frame) == 0:
                         cv2.imshow("Test", out_frame)
                         cv2.waitKey(0)
                         cv2.destroyAllWindows()
@@ -482,7 +470,7 @@ class LaneFinder(object):
 
             print("Lanes found by sliding boxes:", self.lanes_found_w_boxes)
             print("Lanes found by poly refitting:", self.lanes_found_w_poly_refit)
-            print(self.conditions_array)
+            print(self.conditions_counter)
 
 
 
@@ -493,7 +481,8 @@ if __name__ == '__main__':
 
     # image = cv2.imread(r'./test_images/test1.jpg')
     # video = r'project_video.mp4'
-    video = r'challenge_video.mp4'
-    lane_finder = LaneFinder(camera, video=video, verbose=False)
+    video = r'project_video.mp4'
+    # Turn debug to 'True' to have an interactive experience of the algorithm
+    lane_finder = LaneFinder(camera, video=video, debug=False)
     lane_finder()
 
