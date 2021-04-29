@@ -337,6 +337,27 @@ class LaneFinder(object):
 
         return left_curverad, right_curverad
 
+    def draw_lanes_and_shaded_green_area(self, l_line_points, r_line_points, Minv, line_color, image):
+        blank = np.zeros_like(image)
+        product = np.matmul(Minv, l_line_points.T).T
+        rescale_num = product[:, 2, np.newaxis]
+        rescale_num = np.repeat(rescale_num, 3, axis=1)
+        l_line_points_unwarped = np.int32(np.divide(product, rescale_num)[:, :2])
+        cv2.polylines(blank, np.int32([l_line_points_unwarped]), False, line_color, thickness=10)
+
+        product = np.matmul(Minv, r_line_points.T).T
+        rescale_num = product[:, 2, np.newaxis]
+        rescale_num = np.repeat(rescale_num, 3, axis=1)
+        r_line_points_unwarped = np.int32(np.divide(product, rescale_num)[:, :2])
+        cv2.polylines(blank, np.int32([r_line_points_unwarped]), False, line_color, thickness=10)
+
+        lines_points = np.hstack((l_line_points_unwarped, r_line_points_unwarped))
+        lines_points = lines_points.reshape((-1, 2)) # makes even indices l point, odd indices r point
+
+        cv2.fillPoly(blank, np.int32([lines_points]), (150, 255, 150))
+
+        return blank
+
 #===============================================PIPELINE====================================================
 
     def find_lane_lines(self, image):
@@ -393,6 +414,8 @@ class LaneFinder(object):
         r_line_points = (np.array([right_points, ploty, np.ones(left_points.shape[0])]).T).astype(np.int32)
         # print(l_line_points.shape)
 
+        Minv = cv2.getPerspectiveTransform(dst_points, source_pts)
+        img_lines = self.draw_lanes_and_shaded_green_area(l_line_points, r_line_points, Minv, line_color, image)
 
         # after getting curve coordinates, draw line
         # blank_left, blank_right = np.zeros_like(image), np.zeros_like(image)
@@ -400,35 +423,13 @@ class LaneFinder(object):
         # cv2.polylines(blank_right, [r_line_points[:, :2]], False, line_color, thickness=12)  # , color=(255,0,0))
         # lines_unwarped, Minv = self.warp_image(dst_points, source_pts, blank_left | blank_right)
 
-        Minv = cv2.getPerspectiveTransform(dst_points, source_pts)
-
-        b = np.zeros_like(image)
-        product = np.matmul(Minv, l_line_points.T).T
-        rescale_num = product[:, 2, np.newaxis]
-        rescale_num = np.repeat(rescale_num, 3, axis=1)
-        l_line_points_unwarped = np.int32(np.divide(product, rescale_num)[:, :2])
-        cv2.polylines(b, np.int32([l_line_points_unwarped]), False, line_color, thickness=10)
-
-        product = np.matmul(Minv, r_line_points.T).T
-        rescale_num = product[:, 2, np.newaxis]
-        rescale_num = np.repeat(rescale_num, 3, axis=1)
-        r_line_points_unwarped = np.int32(np.divide(product, rescale_num)[:, :2])
-        cv2.polylines(b, np.int32([r_line_points_unwarped]), False, line_color, thickness=10)
-
-        lines_points = np.hstack((l_line_points_unwarped, r_line_points_unwarped))
-        lines_points = lines_points.reshape((-1, 2)) # makes even indices l point, odd indices r point
-
-        cv2.fillPoly(b, np.int32([lines_points]), (150, 255, 150))
-        # cv2.imshow('b', b)
-        # cv2.waitKey(0)
-
         # warp line (which was drawn on birdeye's view image) and project onto regular photo from car camera
         # l_line_unwarped, Minv = self.warp_image(dst_points, source_pts, blank_left)
         # r_line_unwarped, Minv = self.warp_image(dst_points, source_pts, blank_right)
 
         # overlay line over car camera image
         final_image = image.copy()
-        final_image = cv2.addWeighted(final_image, 1, b, .4, 0)
+        final_image = cv2.addWeighted(final_image, 1, img_lines, .4, 0)
         # indices = lines_unwarped.nonzero()
         # final_image[indices[0], indices[1]] = line_color
         # cv2.imwrite(r'./output/street_w_lane_line_overlayed.jpg', final_image)
