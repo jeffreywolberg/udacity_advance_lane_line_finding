@@ -254,7 +254,7 @@ class LaneFinder(object):
                 right_line_window2 = np.array([np.flipud(np.transpose(np.vstack([right_curve_values + margin,
                                                                                  ploty])))])
                 right_line_pts = np.hstack((right_line_window1, right_line_window2))
-    
+                print(left_line_pts.shape)
                 # Draw the lane onto the warped blank image
                 cv2.fillPoly(window_img, np.int_([left_line_pts]), (0, 255, 0))
                 cv2.fillPoly(window_img, np.int_([right_line_pts]), (0, 255, 0))
@@ -389,15 +389,38 @@ class LaneFinder(object):
         self.polynomial_coeffs.append([left_coeffs, right_coeffs])
         # generate the x,y data for the curve
         left_points, right_points, ploty = self.get_poly_curve(image_warped.shape, left_coeffs, right_coeffs)
-        l_line_points = (np.array([left_points, ploty]).T).astype(np.int32)
-        r_line_points = (np.array([right_points, ploty]).T).astype(np.int32)
+        l_line_points = (np.array([left_points, ploty, np.ones(left_points.shape[0])]).T).astype(np.int32)
+        r_line_points = (np.array([right_points, ploty, np.ones(left_points.shape[0])]).T).astype(np.int32)
+        # print(l_line_points.shape)
+
 
         # after getting curve coordinates, draw line
-        blank_left, blank_right = np.zeros_like(image), np.zeros_like(image)
-        cv2.polylines(blank_left, [l_line_points], False, line_color, thickness=12)  # , color=(0,0,255))
-        cv2.polylines(blank_right, [r_line_points], False, line_color, thickness=12)  # , color=(255,0,0))
+        # blank_left, blank_right = np.zeros_like(image), np.zeros_like(image)
+        # cv2.polylines(blank_left, [l_line_points[:, :2]], False, line_color, thickness=12)  # , color=(0,0,255))
+        # cv2.polylines(blank_right, [r_line_points[:, :2]], False, line_color, thickness=12)  # , color=(255,0,0))
+        # lines_unwarped, Minv = self.warp_image(dst_points, source_pts, blank_left | blank_right)
 
-        lines_unwarped, Minv = self.warp_image(dst_points, source_pts, blank_left | blank_right)
+        Minv = cv2.getPerspectiveTransform(dst_points, source_pts)
+
+        b = np.zeros_like(image)
+        product = np.matmul(Minv, l_line_points.T).T
+        rescale_num = product[:, 2, np.newaxis]
+        rescale_num = np.repeat(rescale_num, 3, axis=1)
+        l_line_points_unwarped = np.int32(np.divide(product, rescale_num)[:, :2])
+        cv2.polylines(b, np.int32([l_line_points_unwarped]), False, line_color, thickness=10)
+
+        product = np.matmul(Minv, r_line_points.T).T
+        rescale_num = product[:, 2, np.newaxis]
+        rescale_num = np.repeat(rescale_num, 3, axis=1)
+        r_line_points_unwarped = np.int32(np.divide(product, rescale_num)[:, :2])
+        cv2.polylines(b, np.int32([r_line_points_unwarped]), False, line_color, thickness=10)
+
+        lines_points = np.hstack((l_line_points_unwarped, r_line_points_unwarped))
+        lines_points = lines_points.reshape((-1, 2)) # makes even indices l point, odd indices r point
+
+        cv2.fillPoly(b, np.int32([lines_points]), (150, 255, 150))
+        # cv2.imshow('b', b)
+        # cv2.waitKey(0)
 
         # warp line (which was drawn on birdeye's view image) and project onto regular photo from car camera
         # l_line_unwarped, Minv = self.warp_image(dst_points, source_pts, blank_left)
@@ -405,9 +428,10 @@ class LaneFinder(object):
 
         # overlay line over car camera image
         final_image = image.copy()
-        indices = lines_unwarped.nonzero()
-        final_image[indices[0], indices[1]] = line_color
-        # cv2.imwrite(r'./output_images/street_w_lane_line.jpg', final_image)
+        final_image = cv2.addWeighted(final_image, 1, b, .4, 0)
+        # indices = lines_unwarped.nonzero()
+        # final_image[indices[0], indices[1]] = line_color
+        # cv2.imwrite(r'./output/street_w_lane_line_overlayed.jpg', final_image)
 
         if self.debug and self.frame_num % self.show_every_nth_frame == 0:
             self.display_two_ims(binary_image_warped, final_image, 'L', 'R')
