@@ -13,10 +13,10 @@ class LaneFinder(object):
         self.mtx, self.dist = camera.get_mtx_and_dist()
         self.image = image
         self.video = video
-        self.polynomial_coeffs = [[None, None]]
+        self.polynomial_coeffs = []
         self.debug = debug
         self.frame_num = 0
-        self.show_every_nth_frame = 20
+        self.show_every_nth_frame = 10
 
         # set in case you'd like sliding boxes to be tried after frames_since_reset conseuctive frames of using poly to
         # refit polynomial coefficients
@@ -305,6 +305,11 @@ class LaneFinder(object):
             # print(lefty.shape, leftx.shape, rightx.shape, righty.shape, rightx, righty)
             right_coeffs = self.polynomial_coeffs[-1][1]
 
+        # rolling mean
+        if len(self.polynomial_coeffs)>=10:
+            left_coeffs = np.mean(np.array(self.polynomial_coeffs)[:10, 0], axis=0) * .5 + (.5 * np.array(left_coeffs))
+            right_coeffs = np.mean(np.array(self.polynomial_coeffs)[:10, 1], axis=0) * .5 + (.5 * np.array(right_coeffs))
+
         return left_coeffs, right_coeffs
 
     def get_poly_curve(self, img_shape, left_coeffs, right_coeffs):
@@ -469,10 +474,10 @@ class LaneFinder(object):
                     break
                 else:
                     print("Processing frame {}".format(self.frame_num))
-                    # if self.frame_num <= 980:
+                    # if self.frame_num <= 960:
                     #     self.frame_num += 1
                     #     continue
-                    # if self.frame_num > 108:
+                    # if self.frame_num > 1080:
                     #     break
                     frame = self.camera_obj.undistort_image(frame, self.mtx, self.dist)
                     out_frame = self.find_lane_lines(frame)
